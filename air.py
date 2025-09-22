@@ -245,8 +245,3 @@ if city:
 else:
     st.info("👆 Enter a city name to get started!")
 
-                    st.markdown(f"<div class='metric-container'>📊 Mean Absolute Error (MAE): {round(mae, 2)}</div>", unsafe_allow_html=True)
-                    future_fig = go.Figure()
-                    future_fig.add_trace(go.Scatter(x=future_times, y=future_pm2_5, mode='lines+markers', name='Predicted PM2.5'))
-                    future_fig.update_layout(title="📈 Predicted PM2.5 for Next Hours", xaxis_title="Time", yaxis_title="PM2.5 Level")
-                    st.plotly_chart(future_fig, use_container_width=True)
