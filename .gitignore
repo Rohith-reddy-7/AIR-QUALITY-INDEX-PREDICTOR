@@ -1,0 +1,7 @@
+.streamlit/secrets.toml
+.env
+.env.*
+!.env.example
+air_readings.db
+__pycache__/
+*.pyc
