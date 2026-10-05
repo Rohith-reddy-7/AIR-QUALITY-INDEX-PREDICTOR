@@ -1,4 +1,4 @@
-<<<<<<< HEAD
+"""
 # ===== Importing Required Libraries =====
 import streamlit as st
 import requests
@@ -13,7 +13,7 @@ from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense
 
 # ===== API Key for OpenWeatherMap =====
-API_KEY = "d14a4f432f95fbcc237c73076e774343"
+API_KEY = ""
 
 # ===== Page Setup =====
 st.set_page_config("🌤️ Air Quality & Weather Advisor", layout="wide")
@@ -246,7 +246,7 @@ if city:
 else:
     st.info("👆 Enter a city name to get started!")
 
-=======
+"""
 import os
 import sqlite3
 import time
@@ -548,6 +548,50 @@ def get_suggestions(condition, aqi):
     return aqi_label(aqi), advice.get(condition, "Limit pollution exposure.")
 
 
+ACTIVITY_FACTORS = {
+    "Resting": 1.0,
+    "Walking": 1.8,
+    "Running": 3.5,
+    "Cycling": 3.0,
+}
+MASK_FACTORS = {
+    "No mask": 1.0,
+    "Cloth mask": 0.75,
+    "Surgical mask": 0.55,
+    "Well-fitted N95": 0.25,
+}
+
+
+def estimate_exposure(pm25, duration_minutes, activity, mask):
+    """Estimate relative PM2.5 dose for comparing personal activity choices."""
+    return float(pm25) * duration_minutes * ACTIVITY_FACTORS[activity] * MASK_FACTORS[mask]
+
+
+def build_exposure_plan(current_reading, forecast, duration_minutes, activity, mask):
+    rows = [
+        {
+            "datetime": current_reading["datetime"],
+            "pm2_5": current_reading["pm2_5"],
+            "source": "Current reading",
+        }
+    ]
+    if not forecast.empty:
+        rows.extend(
+            {
+                "datetime": row.datetime,
+                "pm2_5": row.pm2_5,
+                "source": "Provider forecast",
+            }
+            for row in forecast.head(8).itertuples()
+        )
+    plan = pd.DataFrame(rows)
+    plan["aqi"] = plan["pm2_5"].map(pm25_to_aqi)
+    plan["estimated_dose"] = plan["pm2_5"].map(
+        lambda value: estimate_exposure(value, duration_minutes, activity, mask)
+    )
+    return plan.sort_values("estimated_dose").reset_index(drop=True)
+
+
 def deg_to_direction(degrees):
     directions = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
     return directions[round(degrees / 45) % 8]
@@ -737,8 +781,8 @@ def render_dashboard(city, health_condition, history_days, forecast_steps, selec
     metric_columns[4].metric("Stored readings", len(history))
     st.info(f"Personalized guidance for {health_condition}: {advice}")
 
-    overview_tab, analytics_tab, prediction_tab, assistant_tab = st.tabs(
-        ["Overview", "Historical analytics", "Prediction lab", "Safety assistant"]
+    overview_tab, analytics_tab, prediction_tab, planner_tab, assistant_tab = st.tabs(
+        ["Overview", "Historical analytics", "Prediction lab", "Exposure planner", "Safety assistant"]
     )
 
     with overview_tab:
@@ -819,6 +863,47 @@ def render_dashboard(city, health_condition, history_days, forecast_steps, selec
         eval_col, next_col = st.columns(2)
         eval_col.metric("Baseline MAE", f"{mae:.2f} ug/m3" if mae is not None else "Collecting data")
         next_col.metric("Predicted PM2.5 peak", f"{future['pm2_5'].max():.1f} ug/m3")
+        spread = future["pm2_5"].std()
+        st.caption(
+            f"Provenance: {method_label}. Forecast PM2.5 spread across the selected horizon: "
+            f"{spread:.1f} ug/m3. This is a variability signal, not a formal confidence interval."
+        )
+
+    with planner_tab:
+        st.write("Compare the estimated pollution dose for the activity you are planning.")
+        planner_col, result_col = st.columns([1, 1.5])
+        with planner_col:
+            duration = st.slider("Time outdoors (minutes)", 15, 180, 45, step=15)
+            activity = st.selectbox("Activity intensity", list(ACTIVITY_FACTORS))
+            mask = st.selectbox("Protection", list(MASK_FACTORS))
+        plan = build_exposure_plan(current_reading, forecast, duration, activity, mask)
+        best = plan.iloc[0]
+        current_dose = plan.loc[plan["source"] == "Current reading", "estimated_dose"].iloc[0]
+        with result_col:
+            st.metric("Best available window", best["datetime"].strftime("%d %b %H:%M UTC"))
+            st.metric("Estimated dose", f"{best['estimated_dose']:.0f} relative units")
+            if best["source"] == "Current reading":
+                st.success("The current reading is the cleanest option in the available window.")
+            else:
+                reduction = (1 - best["estimated_dose"] / current_dose) * 100 if current_dose else 0
+                st.info(f"Waiting for this window could reduce estimated dose by about {reduction:.0f}%.")
+        st.dataframe(
+            plan[["datetime", "source", "pm2_5", "aqi", "estimated_dose"]].rename(
+                columns={
+                    "datetime": "Window",
+                    "source": "Data source",
+                    "pm2_5": "PM2.5 (ug/m3)",
+                    "aqi": "AQI",
+                    "estimated_dose": "Relative dose",
+                }
+            ),
+            hide_index=True,
+            use_container_width=True,
+        )
+        st.caption(
+            "Dose is a comparison tool based on PM2.5, time, activity intensity, and assumed mask reduction. "
+            "It is not a medical measurement or a guarantee of safety."
+        )
 
     with assistant_tab:
         if "chat_history" not in st.session_state:
@@ -888,4 +973,3 @@ elif not city.strip():
     st.info("Enter a city in the sidebar to open the intelligence dashboard.")
 else:
     st.warning("Select at least one pollutant in the sidebar.")
->>>>>>> 36189c1 (Build air quality intelligence dashboard)
